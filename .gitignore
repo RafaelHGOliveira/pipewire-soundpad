@@ -2,3 +2,5 @@
 .idea
 packages/aur/bin/.git
 packages/aur/standart/.git
+.worktrees/
+.superpowers/
