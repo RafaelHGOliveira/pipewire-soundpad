@@ -73,3 +73,5 @@ When changing binary names, install paths, or asset locations, update **all** of
 - **Two GUI backends** — eframe is built with both x11 and wayland; runtime selection is automatic. Don't drop one without checking distro packaging.
 - **rodio is a git dep** — `cargo update -p rodio` won't work the usual way; edit the `rev` in `Cargo.toml`.
 - **Rust 1.95 clippy** introduced new lints that were fixed in `a6d93ff`. If clippy explodes after a toolchain bump, that's the pattern to follow.
+- **`egui_material_icons` fonts** — the crate registers Material Icons as a font *fallback*, not as a named family. Use `ICON_X.codepoint` directly in `RichText` / `format!`. Calling `.family(FontFamily::Name("MaterialIcons".into()))` panics with "not bound to any fonts".
+- **Unicode arrows render as tofu** — `▲`/`▼`/`↑`/`↓` and similar glyphs aren't in egui's default fonts. For sort indicators or directional arrows, use `ICON_ARROW_UPWARD` / `ICON_ARROW_DOWNWARD` from `egui_material_icons`.
