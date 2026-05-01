@@ -1,7 +1,14 @@
 use crate::{
-    types::pipewire::{DeviceType, Terminate},
+    types::{
+        config::NormalizationConfig,
+        pipewire::{DeviceType, Terminate},
+    },
     utils::{
         daemon::get_daemon_config,
+        loudness::{
+            FileLoudnessMetadata, LoudnessCache, LoudnessCacheEntry, analyze_audio_file,
+            get_file_loudness_metadata, load_loudness_cache, save_loudness_cache,
+        },
         pipewire::{create_link, get_device, link_player_to_virtual_mic},
     },
 };
@@ -50,6 +57,7 @@ pub struct PlayingSound {
     pub duration: Option<f32>,
     pub looped: bool,
     pub volume: f32,
+    pub normalization_gain: f32,
 }
 
 pub struct AudioPlayer {
@@ -62,6 +70,8 @@ pub struct AudioPlayer {
     pub input_device_name: Option<String>,
 
     pub volume: f32, // Master volume
+    pub normalization_config: NormalizationConfig,
+    pub loudness_cache: LoudnessCache,
 }
 
 impl AudioPlayer {
@@ -79,6 +89,8 @@ impl AudioPlayer {
             input_device_name: daemon_config.default_input_name.clone(),
 
             volume: default_volume,
+            normalization_config: daemon_config.normalization.clone(),
+            loudness_cache: load_loudness_cache().unwrap_or_default(),
         };
 
         if audio_player.input_device_name.is_some() {
@@ -321,6 +333,15 @@ impl AudioPlayer {
         file_path: &Path,
         concurrent: bool,
     ) -> Result<u32, Box<dyn Error>> {
+        let normalization_gain = self.normalization_gain_for_path(file_path);
+        let normalization_gain = if let Some(gain) = normalization_gain {
+            gain
+        } else {
+            self.analyze_loudness_for_path(file_path.to_path_buf())
+                .await;
+            self.normalization_gain_for_path(file_path).unwrap_or(1.0)
+        };
+
         let path_buf = file_path.to_path_buf();
 
         let decoder_result =
@@ -352,8 +373,8 @@ impl AudioPlayer {
 
                 let mixer = self.stream_handle.as_ref().unwrap().mixer();
                 let sink = Player::connect_new(mixer);
-                sink.set_volume(self.volume); // Default volume is 1.0 * master
-                sink.append(source);
+                sink.set_volume(self.volume); // Master * per-track stays on the sink
+                sink.append(source.amplify(normalization_gain));
                 sink.play();
 
                 let sound = PlayingSound {
@@ -363,6 +384,7 @@ impl AudioPlayer {
                     duration,
                     looped: false,
                     volume: 1.0,
+                    normalization_gain,
                 };
 
                 self.tracks.insert(id, sound);
@@ -459,7 +481,7 @@ impl AudioPlayer {
                 && let Some((id, source)) = res
                 && let Some(sound) = self.tracks.get_mut(&id)
             {
-                sound.sink.append(source);
+                sound.sink.append(source.amplify(sound.normalization_gain));
                 sound.sink.play();
             }
         }
@@ -484,5 +506,56 @@ impl AudioPlayer {
         self.link_devices().await?;
 
         Ok(())
+    }
+
+    pub fn refresh_normalization_config(&mut self) {
+        self.normalization_config = get_daemon_config().normalization;
+    }
+
+    fn normalization_gain_for_path(&self, file_path: &Path) -> Option<f32> {
+        if !self.normalization_config.enabled {
+            return Some(1.0);
+        }
+
+        let metadata = get_file_loudness_metadata(file_path).ok()?;
+        let path_key = file_path.to_string_lossy().to_string();
+        let entry = self.loudness_cache.entries.get(&path_key)?;
+        if !entry.matches(&metadata) {
+            return None;
+        }
+
+        let file_lufs = entry.lufs?;
+        let gain_db = self.normalization_config.effective_target_lufs() - file_lufs;
+        Some(10.0_f32.powf(gain_db as f32 / 20.0))
+    }
+
+    async fn analyze_loudness_for_path(&mut self, file_path: PathBuf) {
+        let analysis = tokio::task::spawn_blocking({
+            let file_path = file_path.clone();
+            move || analyze_audio_file(&file_path)
+        })
+        .await;
+
+        let Ok(metadata) = get_file_loudness_metadata(&file_path) else {
+            return;
+        };
+        let lufs = match analysis {
+            Ok(Ok(lufs)) => Some(lufs),
+            _ => None,
+        };
+        self.store_loudness_result(file_path, metadata, lufs);
+    }
+
+    fn store_loudness_result(
+        &mut self,
+        file_path: PathBuf,
+        metadata: FileLoudnessMetadata,
+        lufs: Option<f64>,
+    ) {
+        self.loudness_cache.entries.insert(
+            file_path.to_string_lossy().to_string(),
+            LoudnessCacheEntry::from_metadata(metadata, lufs),
+        );
+        save_loudness_cache(&self.loudness_cache).ok();
     }
 }

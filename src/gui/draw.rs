@@ -1,7 +1,7 @@
 use crate::gui::SoundpadGui;
 use egui::{
-    Align, AtomExt, Button, CollapsingHeader, Color32, ComboBox, CursorIcon, FontFamily, Label,
-    Layout, RichText, ScrollArea, Sense, Slider, TextEdit, Ui, Vec2,
+    Align, AtomExt, Button, Checkbox, CollapsingHeader, Color32, ComboBox, CursorIcon, FontFamily,
+    Label, Layout, RichText, ScrollArea, Sense, Slider, TextEdit, Ui, Vec2,
 };
 use egui_dnd::dnd;
 use egui_extras::{Column, TableBuilder};
@@ -122,6 +122,74 @@ impl SoundpadGui {
 
             ui.add_space(10.0);
             ui.separator();
+            ui.label(RichText::new("Volume normalization").monospace());
+
+            if !self.app_state.normalization_ui.loaded {
+                self.load_normalization_settings();
+            }
+
+            let (enabled_response, run_calibration);
+            {
+                let normalization_ui = &mut self.app_state.normalization_ui;
+                let supported = normalization_ui.supported;
+                enabled_response = ui.add_enabled(
+                    supported,
+                    Checkbox::new(
+                        &mut normalization_ui.config.enabled,
+                        "Normalize playback volume",
+                    ),
+                );
+
+                ui.add_enabled_ui(supported, |ui| {
+                    let selected_capture_source = normalization_ui
+                        .capture_sources
+                        .iter()
+                        .find(|source| source.name == normalization_ui.selected_capture_source)
+                        .map(|source| source.label.as_str())
+                        .unwrap_or("Default input");
+
+                    ComboBox::from_label("Calibration microphone")
+                        .selected_text(selected_capture_source)
+                        .show_ui(ui, |ui| {
+                            for source in &normalization_ui.capture_sources {
+                                ui.selectable_value(
+                                    &mut normalization_ui.selected_capture_source,
+                                    source.name.clone(),
+                                    &source.label,
+                                );
+                            }
+                        });
+                });
+
+                let calibrating = normalization_ui.calibration_receiver.is_some();
+                run_calibration = ui
+                    .add_enabled(
+                        supported,
+                        Button::new(if calibrating {
+                            "Stop voice calibration"
+                        } else {
+                            "Start voice calibration"
+                        }),
+                    )
+                    .clicked();
+
+                if let Some(lufs) = normalization_ui.config.calibrated_voice_lufs {
+                    ui.label(format!("Calibrated voice: {:.1} LUFS", lufs));
+                } else {
+                    ui.label("Calibrated voice: not measured yet");
+                }
+
+                if let Some(status) = &normalization_ui.calibration_status {
+                    ui.label(status);
+                }
+            }
+
+            if run_calibration {
+                self.calibrate_voice();
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
             ui.label(RichText::new("Columns").monospace());
 
             let mut columns_changed = false;
@@ -155,8 +223,10 @@ impl SoundpadGui {
                 || save_scale_response.changed()
                 || pause_on_exit_response.changed()
                 || mtime_show_time_response.changed()
+                || enabled_response.changed()
                 || columns_changed
             {
+                self.save_normalization_settings();
                 self.config.save_to_file().ok();
             }
             // --------------------------------
@@ -891,15 +961,13 @@ impl SoundpadGui {
                         };
                         ui.allocate_ui_with_layout(
                             Vec2::new(w, 22.0),
-                            Layout::left_to_right(Align::Center),
+                            Layout::centered_and_justified(egui::Direction::LeftToRight),
                             |ui| {
                                 let resp = handle.sense(Sense::click()).ui(ui, |ui| {
-                                    ui.vertical_centered(|ui| {
-                                        ui.add(
-                                            Label::new(RichText::new(label).strong())
-                                                .selectable(false),
-                                        );
-                                    });
+                                    ui.add(
+                                        Label::new(RichText::new(label).strong())
+                                            .selectable(false),
+                                    );
                                 });
                                 if resp.clicked() {
                                     if self.app_state.sort_by == *col {
@@ -962,7 +1030,7 @@ impl SoundpadGui {
                             match col {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.centered_and_justified(|ui| {
                                             ui.label(RichText::new(idx.to_string()).monospace());
                                         });
                                     });
@@ -981,7 +1049,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.centered_and_justified(|ui| {
                                             ui.label(
                                                 RichText::new(format_mtime(
                                                     mtime,
@@ -994,7 +1062,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.centered_and_justified(|ui| {
                                             ui.label(
                                                 RichText::new(format_duration(duration))
                                                     .monospace(),
@@ -1101,7 +1169,6 @@ impl SoundpadGui {
                     });
                 }
             });
-
         });
     }
 
@@ -1178,7 +1245,7 @@ impl SoundpadGui {
                 Button::new(ICON_SETTINGS.atom_size(Vec2::new(18.0, 18.0))).frame(false);
             let settings_button_response = ui.add_sized([18.0, 18.0], settings_button);
             if settings_button_response.clicked() {
-                self.app_state.show_settings = true;
+                self.open_settings();
             }
             // --------------------------------
         });

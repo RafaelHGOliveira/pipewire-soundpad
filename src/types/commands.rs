@@ -2,16 +2,34 @@ use crate::{
     types::{
         audio_player::{FullState, PlayerState},
         config::HotkeyConfig,
+        gui::CaptureSource,
         socket::{Request, Response},
     },
     utils::{
         commands::parse_command,
         daemon::get_audio_player,
+        loudness::{calibrate_voice_capture, calibrate_voice_capture_until_stopped},
         pipewire::{get_all_devices, get_device},
     },
 };
 use async_trait::async_trait;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+};
+
+static VOICE_CALIBRATION_ACTIVE: AtomicBool = AtomicBool::new(false);
+static VOICE_CALIBRATION_STOP: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+fn voice_calibration_stop_flag() -> Arc<AtomicBool> {
+    VOICE_CALIBRATION_STOP
+        .get_or_init(|| Arc::new(AtomicBool::new(false)))
+        .clone()
+}
 
 #[async_trait]
 pub trait Executable {
@@ -93,6 +111,22 @@ pub struct GetDaemonVersionCommand {}
 pub struct GetFullStateCommand {}
 
 pub struct GetHotkeysCommand {}
+
+pub struct GetNormalizationConfigCommand {}
+
+pub struct SetNormalizationConfigCommand {
+    pub enabled: Option<bool>,
+    pub calibration_device_name: Option<String>,
+}
+
+pub struct GetCaptureSourcesCommand {}
+
+pub struct CalibrateVoiceCommand {
+    pub device_name: Option<String>,
+    pub duration_secs: Option<u32>,
+}
+
+pub struct StopVoiceCalibrationCommand {}
 
 pub struct SetHotkeyCommand {
     pub slot: Option<String>,
@@ -529,6 +563,148 @@ impl Executable for GetHotkeysCommand {
             },
             Err(err) => Response::new(false, format!("Failed to load hotkeys: {}", err)),
         }
+    }
+}
+
+#[async_trait]
+impl Executable for GetNormalizationConfigCommand {
+    async fn execute(&self) -> Response {
+        let config = crate::utils::daemon::get_daemon_config().normalization;
+        match serde_json::to_string(&config) {
+            Ok(json) => Response::new(true, json),
+            Err(err) => Response::new(false, format!("Failed to serialize normalization: {}", err)),
+        }
+    }
+}
+
+#[async_trait]
+impl Executable for SetNormalizationConfigCommand {
+    async fn execute(&self) -> Response {
+        let Some(enabled) = self.enabled else {
+            return Response::new(false, "Missing enabled value");
+        };
+
+        let mut daemon_config = crate::utils::daemon::get_daemon_config();
+        daemon_config.normalization.enabled = enabled;
+        if let Some(device_name) = &self.calibration_device_name {
+            daemon_config.normalization.calibration_device_name = Some(device_name.clone());
+        }
+
+        if let Err(err) = daemon_config.save_to_file() {
+            return Response::new(
+                false,
+                format!("Failed to save normalization config: {}", err),
+            );
+        }
+
+        let mut audio_player = match get_audio_player().await {
+            Ok(player) => player.lock().await,
+            Err(err) => return Response::new(false, format!("Audio player error: {}", err)),
+        };
+        audio_player.refresh_normalization_config();
+
+        Response::new(true, "Normalization config updated")
+    }
+}
+
+#[async_trait]
+impl Executable for GetCaptureSourcesCommand {
+    async fn execute(&self) -> Response {
+        let (input_devices, _output_devices) = match get_all_devices().await {
+            Ok(devices) => devices,
+            Err(err) => return Response::new(false, format!("Failed to get devices: {}", err)),
+        };
+
+        let sources: Vec<CaptureSource> = input_devices
+            .into_iter()
+            .filter(|device| device.name != "pwsp-virtual-mic")
+            .filter(|device| device.output_fl.is_some() || device.output_fr.is_some())
+            .map(|device| CaptureSource {
+                label: if device.nick.is_empty() {
+                    device.name.clone()
+                } else {
+                    device.nick
+                },
+                name: device.name,
+            })
+            .collect();
+
+        match serde_json::to_string(&sources) {
+            Ok(json) => Response::new(true, json),
+            Err(err) => Response::new(
+                false,
+                format!("Failed to serialize capture sources: {}", err),
+            ),
+        }
+    }
+}
+
+#[async_trait]
+impl Executable for CalibrateVoiceCommand {
+    async fn execute(&self) -> Response {
+        if VOICE_CALIBRATION_ACTIVE.swap(true, Ordering::SeqCst) {
+            return Response::new(false, "Voice calibration is already running");
+        }
+
+        let stop_requested = voice_calibration_stop_flag();
+        stop_requested.store(false, Ordering::SeqCst);
+
+        let selected_device_name = self.device_name.clone();
+        let capture_device_hint = match selected_device_name.as_deref() {
+            Some(device_name) => match get_device(device_name).await {
+                Ok(device) if !device.nick.is_empty() => Some(device.nick),
+                _ => Some(device_name.to_string()),
+            },
+            None => None,
+        };
+
+        let calibration_result = if let Some(duration_secs) = self.duration_secs {
+            calibrate_voice_capture(capture_device_hint.as_deref(), duration_secs.clamp(1, 15))
+        } else {
+            calibrate_voice_capture_until_stopped(capture_device_hint.as_deref(), stop_requested)
+        }
+        .map_err(|err| err.to_string());
+        VOICE_CALIBRATION_ACTIVE.store(false, Ordering::SeqCst);
+
+        let mut calibration = match calibration_result {
+            Ok(calibration) => calibration,
+            Err(err) => return Response::new(false, format!("Voice calibration failed: {}", err)),
+        };
+        if let Some(device_name) = selected_device_name {
+            calibration.device_name = Some(device_name);
+        }
+
+        let mut daemon_config = crate::utils::daemon::get_daemon_config();
+        daemon_config.normalization.calibrated_voice_lufs = Some(calibration.lufs);
+        if let Some(device_name) = &calibration.device_name {
+            daemon_config.normalization.calibration_device_name = Some(device_name.clone());
+        }
+        if let Err(err) = daemon_config.save_to_file() {
+            return Response::new(false, format!("Failed to save calibration result: {}", err));
+        }
+
+        let mut audio_player = match get_audio_player().await {
+            Ok(player) => player.lock().await,
+            Err(err) => return Response::new(false, format!("Audio player error: {}", err)),
+        };
+        audio_player.refresh_normalization_config();
+
+        match serde_json::to_string(&calibration) {
+            Ok(json) => Response::new(true, json),
+            Err(err) => Response::new(false, format!("Failed to serialize calibration: {}", err)),
+        }
+    }
+}
+
+#[async_trait]
+impl Executable for StopVoiceCalibrationCommand {
+    async fn execute(&self) -> Response {
+        if !VOICE_CALIBRATION_ACTIVE.load(Ordering::SeqCst) {
+            return Response::new(false, "Voice calibration is not running");
+        }
+
+        voice_calibration_stop_flag().store(true, Ordering::SeqCst);
+        Response::new(true, "Stopping voice calibration")
     }
 }
 

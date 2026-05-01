@@ -180,6 +180,45 @@ impl Request {
         Request::new("get_hotkeys", vec![])
     }
 
+    pub fn get_normalization_config() -> Self {
+        Request::new("get_normalization_config", vec![])
+    }
+
+    pub fn set_normalization_config(enabled: bool, calibration_device_name: Option<&str>) -> Self {
+        let mut args = vec![("enabled".to_string(), enabled.to_string())];
+        if let Some(device_name) = calibration_device_name {
+            args.push((
+                "calibration_device_name".to_string(),
+                device_name.to_string(),
+            ));
+        }
+        Request::new("set_normalization_config".to_string(), args)
+    }
+
+    pub fn get_capture_sources() -> Self {
+        Request::new("get_capture_sources", vec![])
+    }
+
+    pub fn calibrate_voice(device_name: Option<&str>, duration_secs: u32) -> Self {
+        let mut args = vec![("duration_secs".to_string(), duration_secs.to_string())];
+        if let Some(device_name) = device_name {
+            args.push(("device_name".to_string(), device_name.to_string()));
+        }
+        Request::new("calibrate_voice".to_string(), args)
+    }
+
+    pub fn start_voice_calibration(device_name: Option<&str>) -> Self {
+        let mut args = vec![];
+        if let Some(device_name) = device_name {
+            args.push(("device_name".to_string(), device_name.to_string()));
+        }
+        Request::new("calibrate_voice".to_string(), args)
+    }
+
+    pub fn stop_voice_calibration() -> Self {
+        Request::new("stop_voice_calibration", vec![])
+    }
+
     pub fn set_hotkey(slot: &str, file_path: &str) -> Self {
         Request::new("set_hotkey", vec![("slot", slot), ("file_path", file_path)])
     }

@@ -73,6 +73,35 @@ pub fn parse_command(request: &Request) -> Option<Box<dyn Executable + Send>> {
         "get_daemon_version" => Some(Box::new(GetDaemonVersionCommand {})),
         "get_full_state" => Some(Box::new(GetFullStateCommand {})),
         "get_hotkeys" => Some(Box::new(GetHotkeysCommand {})),
+        "get_normalization_config" => Some(Box::new(GetNormalizationConfigCommand {})),
+        "set_normalization_config" => {
+            let enabled = request
+                .args
+                .get("enabled")
+                .unwrap_or(&String::new())
+                .parse::<bool>()
+                .ok();
+            let calibration_device_name = request.args.get("calibration_device_name").cloned();
+            Some(Box::new(SetNormalizationConfigCommand {
+                enabled,
+                calibration_device_name,
+            }))
+        }
+        "get_capture_sources" => Some(Box::new(GetCaptureSourcesCommand {})),
+        "calibrate_voice" => {
+            let device_name = request.args.get("device_name").cloned();
+            let duration_secs = request
+                .args
+                .get("duration_secs")
+                .unwrap_or(&String::new())
+                .parse::<u32>()
+                .ok();
+            Some(Box::new(CalibrateVoiceCommand {
+                device_name,
+                duration_secs,
+            }))
+        }
+        "stop_voice_calibration" => Some(Box::new(StopVoiceCalibrationCommand {})),
         "set_hotkey" => {
             let slot = request.args.get("slot").cloned();
             let file_path = request

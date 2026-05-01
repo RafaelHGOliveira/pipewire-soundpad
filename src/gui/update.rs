@@ -16,6 +16,7 @@ impl App for SoundpadGui {
                 && current_dir == &path
             {
                 self.app_state.current_dir = None;
+                self.config.last_dir = None;
                 self.app_state.files.clear();
             }
         }
@@ -86,6 +87,8 @@ impl App for SoundpadGui {
             }
             self.audio_player_state = guard.clone();
         }
+
+        self.poll_voice_calibration();
 
         // Handle scale factor changes
         let old_scale_factor = self.config.scale_factor;

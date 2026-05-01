@@ -5,11 +5,29 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error::Error, fs, path::PathBuf};
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
+pub struct NormalizationConfig {
+    pub enabled: bool,
+    pub calibrated_voice_lufs: Option<f64>,
+    pub calibration_device_name: Option<String>,
+}
+
+impl NormalizationConfig {
+    pub const FALLBACK_TARGET_LUFS: f64 = -23.0;
+
+    pub fn effective_target_lufs(&self) -> f64 {
+        self.calibrated_voice_lufs
+            .unwrap_or(Self::FALLBACK_TARGET_LUFS)
+    }
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DaemonConfig {
     pub default_input_name: Option<String>,
     pub default_volume: Option<f32>,
+    pub normalization: NormalizationConfig,
 }
 
 impl DaemonConfig {
@@ -55,6 +73,7 @@ pub struct GuiConfig {
     pub visible_files_columns: Vec<FilesColumn>,
 
     pub dirs: Vec<PathBuf>,
+    pub last_dir: Option<PathBuf>,
 }
 
 impl Default for GuiConfig {
@@ -75,6 +94,7 @@ impl Default for GuiConfig {
             visible_files_columns: FilesColumn::ALL.to_vec(),
 
             dirs: vec![],
+            last_dir: None,
         }
     }
 }
@@ -216,5 +236,27 @@ impl HotkeyConfig {
             .iter()
             .filter(|s| s.key_chord.as_deref() == Some(chord))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NormalizationConfig;
+
+    #[test]
+    fn normalization_uses_fallback_voice_target_without_calibration() {
+        let config = NormalizationConfig::default();
+
+        assert_eq!(config.effective_target_lufs(), -23.0);
+    }
+
+    #[test]
+    fn normalization_uses_calibrated_voice_target_when_available() {
+        let config = NormalizationConfig {
+            calibrated_voice_lufs: Some(-20.0),
+            ..Default::default()
+        };
+
+        assert_eq!(config.effective_target_lufs(), -20.0);
     }
 }

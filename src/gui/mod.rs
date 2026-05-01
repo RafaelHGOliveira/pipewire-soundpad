@@ -8,13 +8,12 @@ use itertools::Itertools;
 use pwsp::{
     types::{
         audio_player::PlayerState,
-        config::GuiConfig,
-        config::HotkeyConfig,
-        gui::{AppState, AudioPlayerState},
+        config::{GuiConfig, HotkeyConfig, NormalizationConfig},
+        gui::{AppState, AudioPlayerState, CalibrationUiResult, CaptureSource},
         socket::Request,
     },
     utils::{
-        daemon::get_daemon_config,
+        daemon::{get_daemon_config, make_request},
         gui::{get_gui_config, make_request_async, make_request_sync, start_app_state_thread},
     },
 };
@@ -22,7 +21,7 @@ use rfd::FileDialog;
 use std::{
     error::Error,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
 };
 
 const SUPPORTED_EXTENSIONS: [&str; 13] = [
@@ -54,6 +53,12 @@ impl SoundpadGui {
 
         soundpad_gui.app_state.dirs = config.dirs;
         soundpad_gui.app_state.hotkey_config = HotkeyConfig::load().unwrap_or_default();
+        if let Some(last_dir) = &config.last_dir
+            && last_dir.is_dir()
+            && soundpad_gui.app_state.dirs.contains(last_dir)
+        {
+            soundpad_gui.open_dir(last_dir);
+        }
 
         soundpad_gui
     }
@@ -106,6 +111,8 @@ impl SoundpadGui {
 
     pub fn open_dir(&mut self, path: &PathBuf) {
         self.app_state.current_dir = Some(path.clone());
+        self.config.last_dir = Some(path.clone());
+        self.config.save_to_file().ok();
         match path.read_dir() {
             Ok(read_dir) => {
                 self.app_state.files = read_dir
@@ -122,6 +129,11 @@ impl SoundpadGui {
 
     pub fn play_file(&mut self, path: &Path, concurrent: bool) {
         make_request_async(Request::play(&path.to_string_lossy(), concurrent));
+    }
+
+    pub fn open_settings(&mut self) {
+        self.app_state.show_settings = true;
+        self.load_normalization_settings();
     }
 
     pub fn set_input(&mut self, name: String) {
@@ -193,6 +205,169 @@ impl SoundpadGui {
                 true
             })
             .collect()
+    }
+
+    pub fn load_normalization_settings(&mut self) {
+        let config_res = make_request_sync(Request::get_normalization_config());
+        match config_res {
+            Ok(res) if res.status => {
+                let Ok(config) = serde_json::from_str::<NormalizationConfig>(&res.message) else {
+                    self.app_state.normalization_ui.calibration_status =
+                        Some("Failed to load normalization settings".to_string());
+                    self.app_state.normalization_ui.loaded = true;
+                    return;
+                };
+                self.app_state.normalization_ui.selected_capture_source =
+                    config.calibration_device_name.clone().unwrap_or_default();
+                self.app_state.normalization_ui.config = config;
+                self.app_state.normalization_ui.supported = true;
+            }
+            Ok(res) if res.message == "Unknown command" => {
+                self.app_state.normalization_ui.supported = false;
+                self.app_state.normalization_ui.calibration_status = Some(
+                    "Volume normalization requires restarting pwsp-daemon from this build"
+                        .to_string(),
+                );
+                self.app_state.normalization_ui.loaded = true;
+                return;
+            }
+            Ok(res) => {
+                self.app_state.normalization_ui.supported = false;
+                self.app_state.normalization_ui.calibration_status = Some(res.message);
+                self.app_state.normalization_ui.loaded = true;
+                return;
+            }
+            Err(err) => {
+                self.app_state.normalization_ui.supported = false;
+                self.app_state.normalization_ui.calibration_status = Some(err.to_string());
+                self.app_state.normalization_ui.loaded = true;
+                return;
+            }
+        }
+
+        let sources_res = make_request_sync(Request::get_capture_sources());
+        if let Ok(res) = sources_res
+            && res.status
+            && let Ok(sources) = serde_json::from_str::<Vec<CaptureSource>>(&res.message)
+        {
+            if self
+                .app_state
+                .normalization_ui
+                .selected_capture_source
+                .is_empty()
+                || !sources.iter().any(|source| {
+                    source.name == self.app_state.normalization_ui.selected_capture_source
+                })
+            {
+                self.app_state.normalization_ui.selected_capture_source = sources
+                    .first()
+                    .map(|source| source.name.clone())
+                    .unwrap_or_default();
+            }
+            self.app_state.normalization_ui.capture_sources = sources;
+        }
+
+        self.app_state.normalization_ui.loaded = true;
+    }
+
+    pub fn save_normalization_settings(&mut self) {
+        let ui = &self.app_state.normalization_ui;
+        if !ui.supported {
+            return;
+        }
+
+        let device_name = if ui.selected_capture_source.is_empty() {
+            None
+        } else {
+            Some(ui.selected_capture_source.as_str())
+        };
+
+        make_request_async(Request::set_normalization_config(
+            ui.config.enabled,
+            device_name,
+        ));
+    }
+
+    pub fn calibrate_voice(&mut self) {
+        if !self.app_state.normalization_ui.supported {
+            return;
+        }
+
+        if self
+            .app_state
+            .normalization_ui
+            .calibration_receiver
+            .is_some()
+        {
+            self.app_state.normalization_ui.calibration_status =
+                Some("Stopping voice calibration...".to_string());
+            make_request_async(Request::stop_voice_calibration());
+            return;
+        }
+
+        let device_name = if self
+            .app_state
+            .normalization_ui
+            .selected_capture_source
+            .is_empty()
+        {
+            None
+        } else {
+            Some(
+                self.app_state
+                    .normalization_ui
+                    .selected_capture_source
+                    .as_str(),
+            )
+        };
+
+        let request = Request::start_voice_calibration(device_name);
+        let (sender, receiver) = mpsc::channel();
+        self.app_state.normalization_ui.calibration_status =
+            Some("Calibrating voice... click Stop when finished".to_string());
+        self.app_state.normalization_ui.calibration_receiver = Some(receiver);
+
+        tokio::spawn(async move {
+            let result = match make_request(request).await {
+                Ok(response) if response.status => {
+                    serde_json::from_str::<CalibrationUiResult>(&response.message)
+                        .map_err(|_| "Calibration complete".to_string())
+                }
+                Ok(response) => Err(response.message),
+                Err(err) => Err(err.to_string()),
+            };
+
+            sender.send(result).ok();
+        });
+    }
+
+    pub fn poll_voice_calibration(&mut self) {
+        let Some(receiver) = &self.app_state.normalization_ui.calibration_receiver else {
+            return;
+        };
+
+        let result = match receiver.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => Err("Voice calibration failed".to_string()),
+        };
+
+        self.app_state.normalization_ui.calibration_receiver = None;
+        match result {
+            Ok(result) => {
+                self.app_state.normalization_ui.config.calibrated_voice_lufs = Some(result.lufs);
+                if let Some(device_name) = result.device_name {
+                    self.app_state.normalization_ui.selected_capture_source = device_name;
+                }
+                self.app_state.normalization_ui.calibration_status = Some(format!(
+                    "Voice calibrated at {:.1} LUFS, peak {:.1} dBFS",
+                    result.lufs, result.peak_dbfs
+                ));
+            }
+            Err(status) => {
+                self.app_state.normalization_ui.calibration_status = Some(status);
+            }
+        }
     }
 }
 

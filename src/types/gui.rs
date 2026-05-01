@@ -1,6 +1,6 @@
 use crate::types::{
     audio_player::{PlayerState, TrackInfo},
-    config::HotkeyConfig,
+    config::{HotkeyConfig, NormalizationConfig},
 };
 
 use egui::Id;
@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
+    sync::mpsc::Receiver,
     time::{Instant, SystemTime},
 };
 
@@ -62,6 +63,30 @@ pub struct TrackUiState {
 }
 
 #[derive(Default, Debug)]
+pub struct NormalizationUiState {
+    pub config: NormalizationConfig,
+    pub capture_sources: Vec<CaptureSource>,
+    pub selected_capture_source: String,
+    pub calibration_status: Option<String>,
+    pub calibration_receiver: Option<Receiver<Result<CalibrationUiResult, String>>>,
+    pub supported: bool,
+    pub loaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSource {
+    pub name: String,
+    pub label: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CalibrationUiResult {
+    pub lufs: f64,
+    pub peak_dbfs: f64,
+    pub device_name: Option<String>,
+}
+
+#[derive(Default, Debug)]
 pub struct AppState {
     pub search_query: String,
 
@@ -96,6 +121,8 @@ pub struct AppState {
     pub file_mtime_cache: HashMap<PathBuf, SystemTime>,
     pub file_duration_cache: HashMap<PathBuf, Option<f32>>,
     pub mtime_cache_dir: Option<PathBuf>,
+
+    pub normalization_ui: NormalizationUiState,
 }
 
 #[derive(Default, Debug, Clone)]

@@ -167,7 +167,11 @@ impl SoundpadGui {
 
         // Open/close settings
         if !search_focused && self.key_pressed(ctx, Key::I) {
-            self.app_state.show_settings = !self.app_state.show_settings;
+            if self.app_state.show_settings {
+                self.app_state.show_settings = false;
+            } else {
+                self.open_settings();
+            }
         }
 
         // Toggle hotkeys view

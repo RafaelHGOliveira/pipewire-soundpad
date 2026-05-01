@@ -344,6 +344,24 @@ mod tests {
     }
 
     #[test]
+    fn sort_duration_missing_goes_last() {
+        let files = vec![pb("/c/a.mp3"), pb("/c/b.mp3"), pb("/c/c.mp3")];
+        let mut durations = HashMap::new();
+        durations.insert(pb("/c/a.mp3"), Some(3.0));
+        durations.insert(pb("/c/c.mp3"), Some(1.0));
+
+        let asc = sort_files(
+            &files,
+            FilesColumn::Duration,
+            SortDir::Asc,
+            &HashMap::new(),
+            &durations,
+            &HashMap::new(),
+        );
+        assert_eq!(asc, vec![pb("/c/c.mp3"), pb("/c/a.mp3"), pb("/c/b.mp3")]);
+    }
+
+    #[test]
     fn format_mtime_uses_ymd_hm_local_when_showing_time() {
         // We can't pin the local timezone in a test, so just check shape: 16 chars, dashes/colons/space.
         let s = format_mtime(
