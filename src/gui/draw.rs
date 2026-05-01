@@ -958,30 +958,26 @@ impl SoundpadGui {
                         } else {
                             format!("{} {}", col.label(), glyph)
                         };
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(w, 22.0),
-                            Layout::top_down(Align::Center).with_cross_justify(true),
-                            |ui| {
-                                let resp = handle.sense(Sense::click()).ui(ui, |ui| {
-                                    ui.add(
-                                        Label::new(RichText::new(label).strong())
-                                            .selectable(false)
-                                            .halign(Align::Center),
-                                    );
-                                });
-                                if resp.clicked() {
-                                    if self.app_state.sort_by == *col {
-                                        self.app_state.sort_dir = match self.app_state.sort_dir {
-                                            SortDir::Asc => SortDir::Desc,
-                                            SortDir::Desc => SortDir::Asc,
-                                        };
-                                    } else {
-                                        self.app_state.sort_by = *col;
-                                        self.app_state.sort_dir = SortDir::Asc;
-                                    }
-                                }
-                            },
-                        );
+
+                        let resp = handle.sense(Sense::click()).ui(ui, |ui| {
+                            ui.add_sized(
+                                [w, 22.0],
+                                Label::new(RichText::new(label).strong())
+                                    .selectable(false)
+                                    .halign(Align::Center),
+                            )
+                        });
+                        if resp.clicked() {
+                            if self.app_state.sort_by == *col {
+                                self.app_state.sort_dir = match self.app_state.sort_dir {
+                                    SortDir::Asc => SortDir::Desc,
+                                    SortDir::Desc => SortDir::Asc,
+                                };
+                            } else {
+                                self.app_state.sort_by = *col;
+                                self.app_state.sort_dir = SortDir::Asc;
+                            }
+                        }
                     },
                 );
             });
@@ -1030,17 +1026,10 @@ impl SoundpadGui {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
                                         let w = col_width(FilesColumn::Index);
-                                        ui.allocate_ui_with_layout(
-                                            Vec2::new(w, 20.0),
-                                            Layout::top_down(Align::Center).with_cross_justify(true),
-                                            |ui| {
-                                                ui.add(
-                                                    Label::new(
-                                                        RichText::new(idx.to_string()).monospace(),
-                                                    )
-                                                    .halign(Align::Center),
-                                                );
-                                            },
+                                        ui.add_sized(
+                                            [w, 20.0],
+                                            Label::new(RichText::new(idx.to_string()).monospace())
+                                                .halign(Align::Center),
                                         );
                                     });
                                 }
@@ -1059,39 +1048,29 @@ impl SoundpadGui {
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
                                         let w = col_width(FilesColumn::Modified);
-                                        ui.allocate_ui_with_layout(
-                                            Vec2::new(w, 20.0),
-                                            Layout::top_down(Align::Center).with_cross_justify(true),
-                                            |ui| {
-                                                ui.add(
-                                                    Label::new(
-                                                        RichText::new(format_mtime(
-                                                            mtime,
-                                                            self.config.mtime_show_time,
-                                                        ))
-                                                        .monospace(),
-                                                    )
-                                                    .halign(Align::Center),
-                                                );
-                                            },
+                                        ui.add_sized(
+                                            [w, 20.0],
+                                            Label::new(
+                                                RichText::new(format_mtime(
+                                                    mtime,
+                                                    self.config.mtime_show_time,
+                                                ))
+                                                .monospace(),
+                                            )
+                                            .halign(Align::Center),
                                         );
                                     });
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
                                         let w = col_width(FilesColumn::Duration);
-                                        ui.allocate_ui_with_layout(
-                                            Vec2::new(w, 20.0),
-                                            Layout::top_down(Align::Center).with_cross_justify(true),
-                                            |ui| {
-                                                ui.add(
-                                                    Label::new(
-                                                        RichText::new(format_duration(duration))
-                                                            .monospace(),
-                                                    )
-                                                    .halign(Align::Center),
-                                                );
-                                            },
+                                        ui.add_sized(
+                                            [w, 20.0],
+                                            Label::new(
+                                                RichText::new(format_duration(duration))
+                                                    .monospace(),
+                                            )
+                                            .halign(Align::Center),
                                         );
                                     });
                                 }
