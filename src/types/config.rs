@@ -42,6 +42,8 @@ impl DaemonConfig {
 pub struct GuiConfig {
     pub scale_factor: f32,
     pub left_panel_width: f32,
+    pub window_width: f32,
+    pub window_height: f32,
 
     pub save_volume: bool,
     pub save_input: bool,
@@ -58,6 +60,8 @@ impl Default for GuiConfig {
         GuiConfig {
             scale_factor: 1.0,
             left_panel_width: 280.0,
+            window_width: 1200.0,
+            window_height: 800.0,
 
             save_volume: false,
             save_input: false,

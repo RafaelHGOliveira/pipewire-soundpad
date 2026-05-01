@@ -199,6 +199,8 @@ impl SoundpadGui {
 pub async fn run() -> Result<(), Box<dyn Error>> {
     const ICON: &[u8] = include_bytes!("../../assets/icon.png");
 
+    let initial_config = get_gui_config();
+
     let options = NativeOptions {
         vsync: true,
         centered: true,
@@ -206,7 +208,10 @@ pub async fn run() -> Result<(), Box<dyn Error>> {
 
         viewport: ViewportBuilder::default()
             .with_app_id("ru.arabianq.pwsp")
-            .with_inner_size(Vec2::new(1200.0, 800.0))
+            .with_inner_size(Vec2::new(
+                initial_config.window_width,
+                initial_config.window_height,
+            ))
             .with_min_inner_size(Vec2::new(800.0, 600.0))
             .with_icon(from_png_bytes(ICON)?),
 

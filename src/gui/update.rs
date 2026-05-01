@@ -98,8 +98,21 @@ impl App for SoundpadGui {
             self.config.save_to_file().ok();
         }
 
+        // viewport().inner_rect is None on Wayland, so derive logical pixels
+        // from viewport_rect (egui points) * zoom_factor for with_inner_size.
+        let viewport = ctx.viewport_rect();
+        let zoom = ctx.zoom_factor();
+        if viewport.width() > 0.0 && viewport.height() > 0.0 && zoom > 0.0 {
+            self.config.window_width = viewport.width() * zoom;
+            self.config.window_height = viewport.height() * zoom;
+        }
+
         // Handle input
         self.handle_input(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.config.save_to_file().ok();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut EFrame) {
