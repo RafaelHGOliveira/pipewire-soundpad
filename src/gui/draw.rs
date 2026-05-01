@@ -960,15 +960,14 @@ impl SoundpadGui {
                         };
                         ui.allocate_ui_with_layout(
                             Vec2::new(w, 22.0),
-                            Layout::top_down(Align::Center),
+                            Layout::top_down(Align::Center).with_main_justify(true),
                             |ui| {
                                 let resp = handle.sense(Sense::click()).ui(ui, |ui| {
-                                    ui.vertical_centered(|ui| {
-                                        ui.add(
-                                            Label::new(RichText::new(label).strong())
-                                                .selectable(false),
-                                        );
-                                    });
+                                    ui.add(
+                                        Label::new(RichText::new(label).strong())
+                                            .selectable(false)
+                                            .horizontal_align(Align::Center),
+                                    );
                                 });
                                 if resp.clicked() {
                                     if self.app_state.sort_by == *col {
@@ -1031,7 +1030,10 @@ impl SoundpadGui {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
                                         ui.vertical_centered_justified(|ui| {
-                                            ui.label(RichText::new(idx.to_string()).monospace());
+                                            ui.add(
+                                                Label::new(RichText::new(idx.to_string()).monospace())
+                                                    .horizontal_align(Align::Center),
+                                            );
                                         });
                                     });
                                 }
@@ -1050,12 +1052,15 @@ impl SoundpadGui {
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
                                         ui.vertical_centered_justified(|ui| {
-                                            ui.label(
-                                                RichText::new(format_mtime(
-                                                    mtime,
-                                                    self.config.mtime_show_time,
-                                                ))
-                                                .monospace(),
+                                            ui.add(
+                                                Label::new(
+                                                    RichText::new(format_mtime(
+                                                        mtime,
+                                                        self.config.mtime_show_time,
+                                                    ))
+                                                    .monospace(),
+                                                )
+                                                .horizontal_align(Align::Center),
                                             );
                                         });
                                     });
@@ -1063,9 +1068,12 @@ impl SoundpadGui {
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
                                         ui.vertical_centered_justified(|ui| {
-                                            ui.label(
-                                                RichText::new(format_duration(duration))
-                                                    .monospace(),
+                                            ui.add(
+                                                Label::new(
+                                                    RichText::new(format_duration(duration))
+                                                        .monospace(),
+                                                )
+                                                .horizontal_align(Align::Center),
                                             );
                                         });
                                     });
