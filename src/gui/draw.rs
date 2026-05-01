@@ -1030,7 +1030,7 @@ impl SoundpadGui {
                             match col {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.vertical_centered_justified(|ui| {
                                             ui.label(RichText::new(idx.to_string()).monospace());
                                         });
                                     });
@@ -1049,7 +1049,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.vertical_centered_justified(|ui| {
                                             ui.label(
                                                 RichText::new(format_mtime(
                                                     mtime,
@@ -1062,7 +1062,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
-                                        ui.vertical_centered(|ui| {
+                                        ui.vertical_centered_justified(|ui| {
                                             ui.label(
                                                 RichText::new(format_duration(duration))
                                                     .monospace(),
