@@ -965,7 +965,7 @@ impl SoundpadGui {
                                 Label::new(RichText::new(label).strong())
                                     .selectable(false)
                                     .halign(Align::Center),
-                            )
+                            );
                         });
                         if resp.clicked() {
                             if self.app_state.sort_by == *col {
@@ -1025,9 +1025,8 @@ impl SoundpadGui {
                             match col {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
-                                        let w = col_width(FilesColumn::Index);
                                         ui.add_sized(
-                                            [w, 20.0],
+                                            [ui.available_width(), 20.0],
                                             Label::new(RichText::new(idx.to_string()).monospace())
                                                 .halign(Align::Center),
                                         );
@@ -1047,9 +1046,8 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
-                                        let w = col_width(FilesColumn::Modified);
                                         ui.add_sized(
-                                            [w, 20.0],
+                                            [ui.available_width(), 20.0],
                                             Label::new(
                                                 RichText::new(format_mtime(
                                                     mtime,
@@ -1063,9 +1061,8 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
-                                        let w = col_width(FilesColumn::Duration);
                                         ui.add_sized(
-                                            [w, 20.0],
+                                            [ui.available_width(), 20.0],
                                             Label::new(
                                                 RichText::new(format_duration(duration))
                                                     .monospace(),
