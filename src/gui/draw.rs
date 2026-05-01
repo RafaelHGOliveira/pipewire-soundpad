@@ -960,13 +960,13 @@ impl SoundpadGui {
                         };
                         ui.allocate_ui_with_layout(
                             Vec2::new(w, 22.0),
-                            Layout::top_down(Align::Center).with_main_justify(true),
+                            Layout::top_down(Align::Center).with_cross_justify(true),
                             |ui| {
                                 let resp = handle.sense(Sense::click()).ui(ui, |ui| {
                                     ui.add(
                                         Label::new(RichText::new(label).strong())
                                             .selectable(false)
-                                            .horizontal_align(Align::Center),
+                                            .halign(Align::Center),
                                     );
                                 });
                                 if resp.clicked() {
@@ -1032,7 +1032,7 @@ impl SoundpadGui {
                                         ui.vertical_centered_justified(|ui| {
                                             ui.add(
                                                 Label::new(RichText::new(idx.to_string()).monospace())
-                                                    .horizontal_align(Align::Center),
+                                                    .halign(Align::Center),
                                             );
                                         });
                                     });
@@ -1060,7 +1060,7 @@ impl SoundpadGui {
                                                     ))
                                                     .monospace(),
                                                 )
-                                                .horizontal_align(Align::Center),
+                                                .halign(Align::Center),
                                             );
                                         });
                                     });
@@ -1073,7 +1073,7 @@ impl SoundpadGui {
                                                     RichText::new(format_duration(duration))
                                                         .monospace(),
                                                 )
-                                                .horizontal_align(Align::Center),
+                                                .halign(Align::Center),
                                             );
                                         });
                                     });
