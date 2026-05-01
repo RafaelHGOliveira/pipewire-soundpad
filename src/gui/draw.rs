@@ -961,13 +961,15 @@ impl SoundpadGui {
                         };
                         ui.allocate_ui_with_layout(
                             Vec2::new(w, 22.0),
-                            Layout::centered_and_justified(egui::Direction::LeftToRight),
+                            Layout::top_down(Align::Center),
                             |ui| {
                                 let resp = handle.sense(Sense::click()).ui(ui, |ui| {
-                                    ui.add(
-                                        Label::new(RichText::new(label).strong())
-                                            .selectable(false),
-                                    );
+                                    ui.vertical_centered(|ui| {
+                                        ui.add(
+                                            Label::new(RichText::new(label).strong())
+                                                .selectable(false),
+                                        );
+                                    });
                                 });
                                 if resp.clicked() {
                                     if self.app_state.sort_by == *col {
@@ -996,8 +998,7 @@ impl SoundpadGui {
             let mut table = TableBuilder::new(ui)
                 .striped(false)
                 .resizable(false)
-                .auto_shrink([false, false])
-                .cell_layout(Layout::left_to_right(Align::Center));
+                .auto_shrink([false, false]);
             for col in &columns {
                 let w = col_width(*col);
                 table = if *col == FilesColumn::Name {
@@ -1030,7 +1031,7 @@ impl SoundpadGui {
                             match col {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
-                                        ui.centered_and_justified(|ui| {
+                                        ui.vertical_centered(|ui| {
                                             ui.label(RichText::new(idx.to_string()).monospace());
                                         });
                                     });
@@ -1049,7 +1050,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
-                                        ui.centered_and_justified(|ui| {
+                                        ui.vertical_centered(|ui| {
                                             ui.label(
                                                 RichText::new(format_mtime(
                                                     mtime,
@@ -1062,7 +1063,7 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
-                                        ui.centered_and_justified(|ui| {
+                                        ui.vertical_centered(|ui| {
                                             ui.label(
                                                 RichText::new(format_duration(duration))
                                                     .monospace(),
