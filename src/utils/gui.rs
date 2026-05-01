@@ -7,6 +7,7 @@ use crate::{
     },
     utils::daemon::{is_daemon_running, make_request},
 };
+use rodio::{Decoder, Source};
 use std::{
     cmp::Ordering,
     collections::HashMap,
@@ -40,14 +41,26 @@ pub fn make_request_async(request: Request) {
 }
 
 pub fn format_time_pair(position: f32, duration: f32) -> String {
-    fn format_time(seconds: f32) -> String {
-        let total_seconds = seconds.round() as u32;
-        let minutes = total_seconds / 60;
-        let secs = total_seconds % 60;
-        format!("{:02}:{:02}", minutes, secs)
-    }
-
     format!("{}/{}", format_time(position), format_time(duration))
+}
+
+pub fn format_time(seconds: f32) -> String {
+    let total_seconds = seconds.round() as u32;
+    let minutes = total_seconds / 60;
+    let secs = total_seconds % 60;
+    format!("{:02}:{:02}", minutes, secs)
+}
+
+pub fn format_duration(duration: Option<f32>) -> String {
+    duration.map(format_time).unwrap_or_else(|| "—".to_string())
+}
+
+pub fn audio_duration(path: &PathBuf) -> Option<f32> {
+    let file = std::fs::File::open(path).ok()?;
+    let decoder = Decoder::try_from(file).ok()?;
+    decoder
+        .total_duration()
+        .map(|duration| duration.as_secs_f32())
 }
 
 pub fn start_app_state_thread(audio_player_state_shared: Arc<Mutex<AudioPlayerState>>) {
@@ -136,6 +149,7 @@ pub fn sort_files(
     column: FilesColumn,
     dir: SortDir,
     mtimes: &HashMap<PathBuf, SystemTime>,
+    durations: &HashMap<PathBuf, Option<f32>>,
     hotkeys: &HashMap<PathBuf, String>,
 ) -> Vec<PathBuf> {
     // "missing sorts last" regardless of asc/desc
@@ -171,6 +185,17 @@ pub fn sort_files(
         FilesColumn::Modified => {
             out.sort_by(|a, b| cmp_opt(mtimes.get(a), mtimes.get(b), dir));
         }
+        FilesColumn::Duration => {
+            out.sort_by(|a, b| {
+                let da = durations.get(a).and_then(|duration| {
+                    duration.map(|duration| (duration * 1000.0).round() as u64)
+                });
+                let db = durations.get(b).and_then(|duration| {
+                    duration.map(|duration| (duration * 1000.0).round() as u64)
+                });
+                cmp_opt(da.as_ref(), db.as_ref(), dir)
+            });
+        }
         FilesColumn::Hotkey => {
             out.sort_by(|a, b| {
                 let ka = hotkeys
@@ -189,12 +214,16 @@ pub fn sort_files(
     out
 }
 
-pub fn format_mtime(time: Option<SystemTime>) -> String {
+pub fn format_mtime(time: Option<SystemTime>, show_time: bool) -> String {
     use chrono::{DateTime, Local};
     match time {
         Some(t) => {
             let dt: DateTime<Local> = t.into();
-            dt.format("%Y-%m-%d %H:%M").to_string()
+            if show_time {
+                dt.format("%Y-%m-%d %H:%M").to_string()
+            } else {
+                dt.format("%Y-%m-%d").to_string()
+            }
         }
         None => "—".to_string(),
     }
@@ -221,6 +250,7 @@ mod tests {
             SortDir::Asc,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
         );
         assert_eq!(out, files);
     }
@@ -234,6 +264,7 @@ mod tests {
             SortDir::Desc,
             &HashMap::new(),
             &HashMap::new(),
+            &HashMap::new(),
         );
         assert_eq!(out, vec![pb("/c/c.mp3"), pb("/c/b.mp3"), pb("/c/a.mp3")]);
     }
@@ -245,6 +276,7 @@ mod tests {
             &files,
             FilesColumn::Name,
             SortDir::Asc,
+            &HashMap::new(),
             &HashMap::new(),
             &HashMap::new(),
         );
@@ -268,6 +300,7 @@ mod tests {
             SortDir::Asc,
             &mtimes,
             &HashMap::new(),
+            &HashMap::new(),
         );
         assert_eq!(asc, vec![pb("/c/a.mp3"), pb("/c/c.mp3"), pb("/c/b.mp3")]);
 
@@ -276,6 +309,7 @@ mod tests {
             FilesColumn::Modified,
             SortDir::Desc,
             &mtimes,
+            &HashMap::new(),
             &HashMap::new(),
         );
         assert_eq!(desc, vec![pb("/c/c.mp3"), pb("/c/a.mp3"), pb("/c/b.mp3")]);
@@ -293,6 +327,7 @@ mod tests {
             FilesColumn::Hotkey,
             SortDir::Asc,
             &HashMap::new(),
+            &HashMap::new(),
             &hk,
         );
         assert_eq!(asc, vec![pb("/c/c.mp3"), pb("/c/a.mp3"), pb("/c/b.mp3")]);
@@ -302,17 +337,19 @@ mod tests {
             FilesColumn::Hotkey,
             SortDir::Desc,
             &HashMap::new(),
+            &HashMap::new(),
             &hk,
         );
         assert_eq!(desc, vec![pb("/c/a.mp3"), pb("/c/c.mp3"), pb("/c/b.mp3")]);
     }
 
     #[test]
-    fn format_mtime_uses_ymd_hm_local() {
+    fn format_mtime_uses_ymd_hm_local_when_showing_time() {
         // We can't pin the local timezone in a test, so just check shape: 16 chars, dashes/colons/space.
-        let s = format_mtime(Some(
-            SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000),
-        ));
+        let s = format_mtime(
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+            true,
+        );
         assert_eq!(s.len(), 16, "got {:?}", s);
         let bytes = s.as_bytes();
         assert_eq!(bytes[4], b'-');
@@ -322,8 +359,21 @@ mod tests {
     }
 
     #[test]
-    fn format_mtime_dash_for_none() {
-        assert_eq!(format_mtime(None), "—");
+    fn format_mtime_uses_ymd_local_when_hiding_time() {
+        let s = format_mtime(
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+            false,
+        );
+        assert_eq!(s.len(), 10, "got {:?}", s);
+        let bytes = s.as_bytes();
+        assert_eq!(bytes[4], b'-');
+        assert_eq!(bytes[7], b'-');
     }
 
+    #[test]
+    fn format_mtime_dash_for_none() {
+        assert_eq!(format_mtime(None, true), "—");
+        assert_eq!(format_mtime(None, false), "—");
+    }
 }
+

@@ -11,7 +11,9 @@ use pwsp::types::{
     audio_player::TrackInfo,
     gui::{AppState, FilesColumn, SortDir},
 };
-use pwsp::utils::gui::{format_mtime, format_time_pair, make_request_async, sort_files};
+use pwsp::utils::gui::{
+    audio_duration, format_duration, format_mtime, format_time_pair, make_request_async, sort_files,
+};
 use std::{path::Path, time::Instant};
 
 enum TrackAction {
@@ -143,10 +145,16 @@ impl SoundpadGui {
                 }
             }
 
+            let mtime_show_time_response = ui.checkbox(
+                &mut self.config.mtime_show_time,
+                "Show time in \"Last Modified\" column",
+            );
+
             if save_volume_response.changed()
                 || save_input_response.changed()
                 || save_scale_response.changed()
                 || pause_on_exit_response.changed()
+                || mtime_show_time_response.changed()
                 || columns_changed
             {
                 self.config.save_to_file().ok();
@@ -769,12 +777,16 @@ impl SoundpadGui {
             // Cache invalidation when category changes
             if self.app_state.mtime_cache_dir != self.app_state.current_dir {
                 self.app_state.file_mtime_cache.clear();
+                self.app_state.file_duration_cache.clear();
                 for path in &self.app_state.files {
                     if let Ok(meta) = std::fs::metadata(path)
                         && let Ok(mtime) = meta.modified()
                     {
                         self.app_state.file_mtime_cache.insert(path.clone(), mtime);
                     }
+                    self.app_state
+                        .file_duration_cache
+                        .insert(path.clone(), audio_duration(path));
                 }
                 self.app_state.mtime_cache_dir = self.app_state.current_dir.clone();
             }
@@ -824,6 +836,7 @@ impl SoundpadGui {
                 self.app_state.sort_by,
                 self.app_state.sort_dir,
                 &self.app_state.file_mtime_cache,
+                &self.app_state.file_duration_cache,
                 &hotkeys,
             );
 
@@ -831,11 +844,13 @@ impl SoundpadGui {
             // placement; widths must mirror the body's, including a manual
             // reservation for the scrollbar.
             let scroll_w = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_outer_margin;
-            let fixed_width = |c: FilesColumn| -> f32 {
+            let mtime_show_time = self.config.mtime_show_time;
+            let fixed_width = move |c: FilesColumn| -> f32 {
                 match c {
                     FilesColumn::Index => 40.0,
                     FilesColumn::Hotkey => 70.0,
-                    FilesColumn::Modified => 150.0,
+                    FilesColumn::Duration => 80.0,
+                    FilesColumn::Modified => if mtime_show_time { 150.0 } else { 120.0 },
                     FilesColumn::Name => 0.0,
                 }
             };
@@ -869,16 +884,22 @@ impl SoundpadGui {
                         } else {
                             ""
                         };
-                        let label = format!("{} {}", col.label(), glyph);
+                        let label = if glyph.is_empty() {
+                            col.label().to_string()
+                        } else {
+                            format!("{} {}", col.label(), glyph)
+                        };
                         ui.allocate_ui_with_layout(
                             Vec2::new(w, 22.0),
-                            Layout::centered_and_justified(egui::Direction::TopDown),
+                            Layout::left_to_right(Align::Center),
                             |ui| {
                                 let resp = handle.sense(Sense::click()).ui(ui, |ui| {
-                                    ui.add(
-                                        Label::new(RichText::new(label).strong())
-                                            .selectable(false),
-                                    );
+                                    ui.vertical_centered(|ui| {
+                                        ui.add(
+                                            Label::new(RichText::new(label).strong())
+                                                .selectable(false),
+                                        );
+                                    });
                                 });
                                 if resp.clicked() {
                                     if self.app_state.sort_by == *col {
@@ -919,147 +940,167 @@ impl SoundpadGui {
             }
             let table = table.max_scroll_height(scroll_max);
 
-            table
-                .body(|mut body| {
-                    for entry_path in sorted {
-                        let file_name = entry_path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .to_string();
-                        let idx = slot_idx.get(&entry_path).copied().unwrap_or(0);
-                        let hotkey_label = hotkeys.get(&entry_path).cloned().unwrap_or_default();
-                        let mtime = self.app_state.file_mtime_cache.get(&entry_path).copied();
+            table.body(|mut body| {
+                for entry_path in sorted {
+                    let file_name = entry_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let idx = slot_idx.get(&entry_path).copied().unwrap_or(0);
+                    let hotkey_label = hotkeys.get(&entry_path).cloned().unwrap_or_default();
+                    let mtime = self.app_state.file_mtime_cache.get(&entry_path).copied();
+                    let duration = self
+                        .app_state
+                        .file_duration_cache
+                        .get(&entry_path)
+                        .copied()
+                        .flatten();
 
-                        body.row(20.0, |mut row| {
-                            for col in &columns {
-                                match col {
-                                    FilesColumn::Index => {
-                                        row.col(|ui| {
+                    body.row(20.0, |mut row| {
+                        for col in &columns {
+                            match col {
+                                FilesColumn::Index => {
+                                    row.col(|ui| {
+                                        ui.vertical_centered(|ui| {
                                             ui.label(RichText::new(idx.to_string()).monospace());
                                         });
-                                    }
-                                    FilesColumn::Hotkey => {
-                                        row.col(|ui| {
-                                            if !hotkey_label.is_empty() {
-                                                ui.label(
-                                                    RichText::new(&hotkey_label)
-                                                        .small()
-                                                        .monospace()
-                                                        .color(Color32::from_rgb(100, 200, 100)),
-                                                );
-                                            }
-                                        });
-                                    }
-                                    FilesColumn::Modified => {
-                                        row.col(|ui| {
+                                    });
+                                }
+                                FilesColumn::Hotkey => {
+                                    row.col(|ui| {
+                                        if !hotkey_label.is_empty() {
                                             ui.label(
-                                                RichText::new(format_mtime(mtime)).monospace(),
+                                                RichText::new(&hotkey_label)
+                                                    .small()
+                                                    .monospace()
+                                                    .color(Color32::from_rgb(100, 200, 100)),
+                                            );
+                                        }
+                                    });
+                                }
+                                FilesColumn::Modified => {
+                                    row.col(|ui| {
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                RichText::new(format_mtime(
+                                                    mtime,
+                                                    self.config.mtime_show_time,
+                                                ))
+                                                .monospace(),
                                             );
                                         });
-                                    }
-                                    FilesColumn::Name => {
-                                        row.col(|ui| {
-                                            let mut file_button_text = RichText::new(&file_name);
-                                            if let Some(current_file) =
-                                                &self.app_state.selected_file
-                                                && current_file.eq(&entry_path)
-                                            {
-                                                file_button_text =
-                                                    file_button_text.color(Color32::WHITE);
-                                            }
-                                            let file_button = Button::new(file_button_text)
-                                                .frame(false)
-                                                .truncate();
-                                            let file_button_response = ui.add(file_button);
-                                            if file_button_response.clicked() {
-                                                ui.input(|i| {
-                                                    if i.modifiers.ctrl {
-                                                        self.play_file(&entry_path, true);
-                                                    } else if i.modifiers.shift
-                                                        && let Some(last_track) =
-                                                            self.audio_player_state.tracks.last()
-                                                    {
-                                                        self.stop(Some(last_track.id));
-                                                        self.play_file(&entry_path, true);
-                                                    } else {
-                                                        self.play_file(&entry_path, false);
-                                                    }
-                                                });
-                                                self.app_state.selected_file =
-                                                    Some(entry_path.clone());
-                                            }
-
-                                            file_button_response.context_menu(|ui| {
-                                                if ui
-                                                    .button(format!(
-                                                        "{} {}",
-                                                        ICON_BOLT.codepoint, "Play Solo"
-                                                    ))
-                                                    .clicked()
-                                                {
-                                                    self.play_file(&entry_path, false);
-                                                    self.app_state.selected_file =
-                                                        Some(entry_path.clone());
-                                                }
-                                                if ui
-                                                    .button(format!(
-                                                        "{} {}",
-                                                        ICON_ADD.codepoint, "Add New"
-                                                    ))
-                                                    .clicked()
-                                                {
+                                    });
+                                }
+                                FilesColumn::Duration => {
+                                    row.col(|ui| {
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                RichText::new(format_duration(duration))
+                                                    .monospace(),
+                                            );
+                                        });
+                                    });
+                                }
+                                FilesColumn::Name => {
+                                    row.col(|ui| {
+                                        let mut file_button_text = RichText::new(&file_name);
+                                        if let Some(current_file) = &self.app_state.selected_file
+                                            && current_file.eq(&entry_path)
+                                        {
+                                            file_button_text =
+                                                file_button_text.color(Color32::WHITE);
+                                        }
+                                        let file_button =
+                                            Button::new(file_button_text).frame(false).truncate();
+                                        let file_button_response = ui.add(file_button);
+                                        if file_button_response.clicked() {
+                                            ui.input(|i| {
+                                                if i.modifiers.ctrl {
                                                     self.play_file(&entry_path, true);
-                                                    self.app_state.selected_file =
-                                                        Some(entry_path.clone());
-                                                }
-                                                if ui
-                                                    .button(format!(
-                                                        "{} {}",
-                                                        ICON_SWAP_HORIZ.codepoint, "Replace Last"
-                                                    ))
-                                                    .clicked()
+                                                } else if i.modifiers.shift
                                                     && let Some(last_track) =
                                                         self.audio_player_state.tracks.last()
                                                 {
                                                     self.stop(Some(last_track.id));
                                                     self.play_file(&entry_path, true);
-                                                    self.app_state.selected_file =
-                                                        Some(entry_path.clone());
-                                                }
-                                                ui.separator();
-                                                if ui
-                                                    .button(format!(
-                                                        "{} {}",
-                                                        ICON_OPEN_IN_BROWSER.codepoint,
-                                                        "Show in File Manager"
-                                                    ))
-                                                    .clicked()
-                                                    && let Err(e) = opener::reveal(&entry_path)
-                                                {
-                                                    eprintln!("Failed to open file manager: {}", e);
-                                                }
-                                                ui.separator();
-                                                if ui
-                                                    .button(format!(
-                                                        "{} {}",
-                                                        ICON_KEYBOARD.codepoint, "Assign Hotkey"
-                                                    ))
-                                                    .clicked()
-                                                {
-                                                    self.app_state.assigning_hotkey_for_file =
-                                                        Some(entry_path.clone());
-                                                    self.app_state.hotkey_capture_active = true;
-                                                    ui.close();
+                                                } else {
+                                                    self.play_file(&entry_path, false);
                                                 }
                                             });
+                                            self.app_state.selected_file = Some(entry_path.clone());
+                                        }
+
+                                        file_button_response.context_menu(|ui| {
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    ICON_BOLT.codepoint, "Play Solo"
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.play_file(&entry_path, false);
+                                                self.app_state.selected_file =
+                                                    Some(entry_path.clone());
+                                            }
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    ICON_ADD.codepoint, "Add New"
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.play_file(&entry_path, true);
+                                                self.app_state.selected_file =
+                                                    Some(entry_path.clone());
+                                            }
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    ICON_SWAP_HORIZ.codepoint, "Replace Last"
+                                                ))
+                                                .clicked()
+                                                && let Some(last_track) =
+                                                    self.audio_player_state.tracks.last()
+                                            {
+                                                self.stop(Some(last_track.id));
+                                                self.play_file(&entry_path, true);
+                                                self.app_state.selected_file =
+                                                    Some(entry_path.clone());
+                                            }
+                                            ui.separator();
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    ICON_OPEN_IN_BROWSER.codepoint,
+                                                    "Show in File Manager"
+                                                ))
+                                                .clicked()
+                                                && let Err(e) = opener::reveal(&entry_path)
+                                            {
+                                                eprintln!("Failed to open file manager: {}", e);
+                                            }
+                                            ui.separator();
+                                            if ui
+                                                .button(format!(
+                                                    "{} {}",
+                                                    ICON_KEYBOARD.codepoint, "Assign Hotkey"
+                                                ))
+                                                .clicked()
+                                            {
+                                                self.app_state.assigning_hotkey_for_file =
+                                                    Some(entry_path.clone());
+                                                self.app_state.hotkey_capture_active = true;
+                                                ui.close();
+                                            }
                                         });
-                                    }
+                                    });
                                 }
                             }
-                        });
-                    }
-                });
+                        }
+                    });
+                }
+            });
 
         });
     }

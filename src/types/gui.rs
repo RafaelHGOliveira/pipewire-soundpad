@@ -18,14 +18,16 @@ pub enum FilesColumn {
     Index,
     Hotkey,
     Name,
+    Duration,
     Modified,
 }
 
 impl FilesColumn {
-    pub const ALL: [FilesColumn; 4] = [
+    pub const ALL: [FilesColumn; 5] = [
         FilesColumn::Index,
         FilesColumn::Hotkey,
         FilesColumn::Name,
+        FilesColumn::Duration,
         FilesColumn::Modified,
     ];
 
@@ -34,6 +36,7 @@ impl FilesColumn {
             FilesColumn::Index => "#",
             FilesColumn::Hotkey => "Hotkey",
             FilesColumn::Name => "Name",
+            FilesColumn::Duration => "Duration",
             FilesColumn::Modified => "Last Modified",
         }
     }
@@ -91,6 +94,7 @@ pub struct AppState {
     pub sort_by: FilesColumn,
     pub sort_dir: SortDir,
     pub file_mtime_cache: HashMap<PathBuf, SystemTime>,
+    pub file_duration_cache: HashMap<PathBuf, Option<f32>>,
     pub mtime_cache_dir: Option<PathBuf>,
 }
 

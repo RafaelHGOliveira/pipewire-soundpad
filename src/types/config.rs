@@ -50,6 +50,8 @@ pub struct GuiConfig {
     pub save_scale_factor: bool,
     pub pause_on_exit: bool,
 
+    pub mtime_show_time: bool,
+
     pub visible_files_columns: Vec<FilesColumn>,
 
     pub dirs: Vec<PathBuf>,
@@ -67,6 +69,8 @@ impl Default for GuiConfig {
             save_input: false,
             save_scale_factor: false,
             pause_on_exit: false,
+
+            mtime_show_time: true,
 
             visible_files_columns: FilesColumn::ALL.to_vec(),
 
