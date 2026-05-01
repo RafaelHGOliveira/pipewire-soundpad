@@ -1029,12 +1029,19 @@ impl SoundpadGui {
                             match col {
                                 FilesColumn::Index => {
                                     row.col(|ui| {
-                                        ui.vertical_centered_justified(|ui| {
-                                            ui.add(
-                                                Label::new(RichText::new(idx.to_string()).monospace())
+                                        let w = col_width(FilesColumn::Index);
+                                        ui.allocate_ui_with_layout(
+                                            Vec2::new(w, 20.0),
+                                            Layout::top_down(Align::Center).with_cross_justify(true),
+                                            |ui| {
+                                                ui.add(
+                                                    Label::new(
+                                                        RichText::new(idx.to_string()).monospace(),
+                                                    )
                                                     .halign(Align::Center),
-                                            );
-                                        });
+                                                );
+                                            },
+                                        );
                                     });
                                 }
                                 FilesColumn::Hotkey => {
@@ -1051,31 +1058,41 @@ impl SoundpadGui {
                                 }
                                 FilesColumn::Modified => {
                                     row.col(|ui| {
-                                        ui.vertical_centered_justified(|ui| {
-                                            ui.add(
-                                                Label::new(
-                                                    RichText::new(format_mtime(
-                                                        mtime,
-                                                        self.config.mtime_show_time,
-                                                    ))
-                                                    .monospace(),
-                                                )
-                                                .halign(Align::Center),
-                                            );
-                                        });
+                                        let w = col_width(FilesColumn::Modified);
+                                        ui.allocate_ui_with_layout(
+                                            Vec2::new(w, 20.0),
+                                            Layout::top_down(Align::Center).with_cross_justify(true),
+                                            |ui| {
+                                                ui.add(
+                                                    Label::new(
+                                                        RichText::new(format_mtime(
+                                                            mtime,
+                                                            self.config.mtime_show_time,
+                                                        ))
+                                                        .monospace(),
+                                                    )
+                                                    .halign(Align::Center),
+                                                );
+                                            },
+                                        );
                                     });
                                 }
                                 FilesColumn::Duration => {
                                     row.col(|ui| {
-                                        ui.vertical_centered_justified(|ui| {
-                                            ui.add(
-                                                Label::new(
-                                                    RichText::new(format_duration(duration))
-                                                        .monospace(),
-                                                )
-                                                .halign(Align::Center),
-                                            );
-                                        });
+                                        let w = col_width(FilesColumn::Duration);
+                                        ui.allocate_ui_with_layout(
+                                            Vec2::new(w, 20.0),
+                                            Layout::top_down(Align::Center).with_cross_justify(true),
+                                            |ui| {
+                                                ui.add(
+                                                    Label::new(
+                                                        RichText::new(format_duration(duration))
+                                                            .monospace(),
+                                                    )
+                                                    .halign(Align::Center),
+                                                );
+                                            },
+                                        );
                                     });
                                 }
                                 FilesColumn::Name => {
